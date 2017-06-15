@@ -2,98 +2,156 @@ import gym
 import numpy as np
 import cPickle as pickle
 import tensorflow as tf
-
-#env_d = 'LunarLander-v2'
-env_d = 'CartPole-v0'
-env = gym.make(env_d)
-env.reset()
+import sys
 
 
-def agentLunar(observation):
-    x = tf.expand_dims(observation,0)
-    W1 = tf.Variable(tf.zeros([8,15]))
-    b1 = tf.Variable(tf.zeros([15]))
+def buildAgentNet(observation, input_size, output_size):
+    #x = tf.expand_dims(observation,0)
+    W1 = tf.Variable(tf.random_uniform([input_size,15]))
+    b1 = tf.Variable(tf.random_uniform([15]))
 
-    h1 = tf.tanh(tf.add(tf.matmul(x, W1), b1))
+    h1 = tf.tanh(tf.add(tf.matmul(observation, W1), b1))
 
-    W2 = tf.Variable(tf.zeros([15,15]))
-    b2 = tf.Variable(tf.zeros([15]))
+    W2 = tf.Variable(tf.random_uniform([15,15]))
+    b2 = tf.Variable(tf.random_uniform([15]))
 
     h2 = tf.tanh(tf.add(tf.matmul(h1, W2), b2))
 
-    W3 = tf.Variable(tf.zeros([15,4]))
-    b3 = tf.Variable(tf.zeros([4]))
+    W3 = tf.Variable(tf.random_uniform([15,output_size]))
+    b3 = tf.Variable(tf.random_uniform([output_size]))
 
     return tf.nn.softmax(tf.add(tf.matmul(h2, W3), b3))
 
+def discount_rewards(r, gamma=0.99):
+    discounted_reward = np.zeros_like(r)
+    running_add = 0
+    for t in reversed(xrange(0, r.size)):
+        running_add = running_add * gamma + r[t]
+        discounted_reward[t] = running_add
+    return discounted_reward
 
-def agentCart(observation):
-    x = tf.expand_dims(observation,0)
-    W1 = tf.Variable(tf.zeros([4,15]))
-    b1 = tf.Variable(tf.zeros([15]))
+class Agent():
+    def __init__(self, actions_size, states_size, batch_size):
+        self.observation = tf.placeholder(tf.float32, shape=[None,states_size])
+        self.y = buildAgentNet(self.observation, states_size, actions_size)
 
-    h1 = tf.tanh(tf.add(tf.matmul(x, W1), b1))
+        self.rewards_holder = tf.placeholder(shape=[None],dtype=tf.float32)
+        self.actions_holder = tf.placeholder(shape=[None],dtype=tf.int32)
 
-    W2 = tf.Variable(tf.zeros([15,15]))
-    b2 = tf.Variable(tf.zeros([15]))
+        # Gets the indexes of the output parameters of the actions that were
+        # taken in a batch or a single action for a single step.
+        indexes = tf.range(0, tf.shape(self.y)[0]) * tf.shape(self.y)[1] + self.actions_holder
+        ys_of_taken_actions = tf.gather(tf.reshape(self.y, [-1]), indexes)
 
-    h2 = tf.tanh(tf.add(tf.matmul(h1, W2), b2))
+        loss = - (tf.log(ys_of_taken_actions) * self.rewards_holder) / batch_size
 
-    W3 = tf.Variable(tf.zeros([15,2]))
-    b3 = tf.Variable(tf.zeros([2]))
+        self.train_vars = tf.trainable_variables()
+        self.gradients = tf.gradients(loss,self.train_vars)
 
-    return tf.nn.softmax(tf.add(tf.matmul(h2, W3), b3))
+        # For assigning loaded parameters to the model
+        self.parameters_assign = []
+        self.parameters_W = tf.placeholder(tf.float32, shape=[None,None])
+        self.parameters_b = tf.placeholder(tf.float32, shape=[None])
+        for i,var in enumerate(self.train_vars):
+            if i % 2 ==0:
+                self.parameters_assign.append(var.assign(self.parameters_W))
+            else:
+                self.parameters_assign.append(var.assign(self.parameters_b))
+        # alternative: regular tf saver
+        self.saver = tf.train.Saver()
 
-if env_d == 'LunarLander-v2':
-    observation = tf.placeholder(tf.float32, shape=[8])
-    y = agentLunar(observation)
+        # For updating manually the gradients
+        self.gradient_holders = []
+        for i, _ in enumerate(self.train_vars):
+            grad_holder = tf.placeholder(tf.float32,name=str(i)+'_holder')
+            self.gradient_holders.append(grad_holder)
 
-if env_d == 'CartPole-v0':
-    observation = tf.placeholder(tf.float32, shape=[4])
-    y = agentCart(observation)
 
-adam = tf.train.AdamOptimizer()
-init = tf.global_variables_initializer()
+        adam = tf.train.AdamOptimizer(0.01)
+        self.train_op = adam.apply_gradients(zip(self.gradient_holders,self.train_vars))
+
+
 def main(argv):
+    tf.reset_default_graph()
     total_episodes = 30000
     batch_size = 10
+    env_d = 'LunarLander-v2'
+    if len(argv) > 1:
+        env_d = argv[1]
+
+    agent = None
+    if env_d == 'LunarLander-v2':
+        agent = Agent(4, 8, batch_size)
+    elif env_d == 'CartPole-v0':
+        agent = Agent(2, 4, batch_size)
+    else:
+        print('Not supported enviroment: ' + env_d)
+        sys.exit(1)
+
+    env = gym.make(env_d)
+    init = tf.global_variables_initializer()
     with tf.Session() as sess:
         sess.run(init)
         obsrv = env.reset() # Obtain an initial observation of the environment
         episode_number = 0
-        ep_rewards = np.array([])
-        ep_policies = np.array([])
-        while episode_number <= total_episodes/ batch_size:
-            batch_grads = np.zeros([])
-            for b in xrange(batch_size):
-                done = False
-                while not done:
-                    # Run the policy network and get a distribution over actions
-                    action_probs = sess.run(y,feed_dict={observation: obsrv})
-                    # sample action from distribution
-                    action = np.argmax(np.random.multinomial(1,action_probs[:, 0]))
-                    # step the environment and get new measurements
-                    obsrv, reward, done, info = env.step(action)
 
-                    ep_rewards = np.append(ep_rewards, reward)
-                    ep_policies = np.append(ep_policies, action_probs)
+        grad_buffer = sess.run(agent.train_vars)
+        for i, grad in enumerate(grad_buffer):
+            grad_buffer[i] = grad * 0
 
-                episode_number += 1
-                obsrv = env.reset()
+        all_rewards = []
+        while episode_number < total_episodes:
+            done = False
+            game_states = []
+            game_actions = []
+            game_rewards = []
+            while not done:
+                #env.render()
+                game_states.append(obsrv)
+                # Run the policy network and get a distribution over actions
+                action_probs = sess.run(agent.y, feed_dict={agent.observation: [obsrv]})
 
-                sum_grads = np.zeros([])
-                for t in xrange(len(ep_rewards)):
-                    phrase = tf.add(tf.log(ep_policies[t]), tf.constant(np.sum(ep_rewards[t:])))
-                    grads = adam.compute_gradients(phrase)
-                    grad_placeholder = [(tf.placeholder("float", shape = grad[1].get_shape()), grad[1]) for grad in grads]
-                    import ipdb; ipdb.set_trace()
-                    print 'a'
+                # sample action from distribution
+                action = np.argmax(np.random.multinomial(1,action_probs[0,]))
+                game_actions.append(action)
 
-                batch_grads += sum_grads
+                # step the environment and get new measurements
+                obsrv, reward, done, info = env.step(action)
+                game_rewards.append(reward)
 
-            batch_grads  = batch_grads/ batch_size
-            adam.compute_gradients(batch_grads)
-            sess.run(adam)
+            game_states = np.array(game_states)
+            game_actions = np.array(game_actions)
+            game_rewards = np.array(game_rewards)
+
+            all_rewards.append(np.sum(game_rewards))
+
+            # sum gradients of the game (divided by batch_size)
+            feed_dict={agent.rewards_holder:discount_rewards(game_rewards),
+                agent.actions_holder:game_actions,agent.observation:np.vstack(game_states)}
+            batch_grads = sess.run(agent.gradients, feed_dict=feed_dict)
+            for i, grad in enumerate(batch_grads):
+                grad_buffer[i] += grad
+
+            if episode_number % batch_size == 0 and episode_number != 0:
+                # apply the batch gradients on the model
+                feed_dict = dict(zip(agent.gradient_holders, grad_buffer))
+                sess.run(agent.train_op, feed_dict=feed_dict)
+                for i, grad in enumerate(grad_buffer):
+                    grad_buffer[i] = grad * 0
+
+            if episode_number % 100 == 0:
+                print('games: %i, reward mean of last 100: %.2f' % \
+                (episode_number, np.mean(all_rewards[-100:])))
+            if episode_number % 1000 == 0:
+                agent.saver.save(sess, 'model_' + env_d + '.ckpt')
+            episode_number += 1
+            obsrv = env.reset()
+
+        params = sess.run(agent.train_vars)
+        fd = 'ws' + env_d + '.p'
+        pickle.dump(params, open(fd,'wb'))
+
+
 
 
 if __name__ == '__main__':
