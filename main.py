@@ -76,6 +76,8 @@ def main(argv):
     total_episodes = 30000
     batch_size = 10
     load_parameters = False
+    save_parameters = True
+    render = False
     env_d = 'LunarLander-v2'
     if len(argv) > 1:
         env_d = argv[1]
@@ -98,7 +100,14 @@ def main(argv):
         episode_number = 0
 
         if load_parameters:
-            print 'TODO'
+            fd = 'ws_' + env_d + '.p.best'
+            params = pickle.load(open(fd,'r'))
+            for i,var in enumerate(params):
+                if i % 2 ==0:
+                    sess.run(agent.parameters_assign[i], feed_dict={agent.parameters_W:var})
+                else:
+                    sess.run(agent.parameters_assign[i], feed_dict={agent.parameters_b:var})
+
         grad_buffer = sess.run(agent.train_vars)
         for i, grad in enumerate(grad_buffer):
             grad_buffer[i] = grad * 0
@@ -110,7 +119,8 @@ def main(argv):
             game_actions = []
             game_rewards = []
             while not done:
-                #env.render()
+                if render:
+                    env.render()
                 game_states.append(obsrv)
                 # Run the policy network and get a distribution over actions
                 action_probs = sess.run(agent.y, feed_dict={agent.observation: [obsrv]})
@@ -147,21 +157,22 @@ def main(argv):
                 rewards_mean = np.mean(all_rewards[-100:])
                 print('games: %i, reward mean of last 100: %.2f' % \
                 (episode_number, rewards_mean ))
-                if rewards_mean >= best_rewards:
+                if rewards_mean >= best_rewards and save_parameters:
                     best_rewards = rewards_mean
                     params = sess.run(agent.train_vars)
                     fd = 'ws_' + env_d + '.p.best'
                     pickle.dump(params, open(fd,'wb'))
 
-            if episode_number % 1000 == 0:
+            if episode_number % 1000 == 0 and save_parameters:
                 agent.saver.save(sess, 'model_' + env_d + '.ckpt')
 
             episode_number += 1
             obsrv = env.reset()
 
-        params = sess.run(agent.train_vars)
-        fd = 'ws_' + env_d + '.p'
-        pickle.dump(params, open(fd,'wb'))
+        if save_parameters:
+            params = sess.run(agent.train_vars)
+            fd = 'ws_' + env_d + '.p'
+            pickle.dump(params, open(fd,'wb'))
 
 
 
