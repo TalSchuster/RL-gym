@@ -6,36 +6,36 @@ import sys
 
 
 def buildAgentNet(observation, input_size, output_size):
-    #x = tf.expand_dims(observation,0)
-    W1 = tf.Variable(tf.random_uniform([input_size,15]))
-    b1 = tf.Variable(tf.random_uniform([15]))
+    W1 = tf.Variable(tf.random_uniform([input_size,15], dtype=tf.float64))
+    b1 = tf.Variable(tf.random_uniform([15], dtype=tf.float64))
 
     h1 = tf.tanh(tf.add(tf.matmul(observation, W1), b1))
 
-    W2 = tf.Variable(tf.random_uniform([15,15]))
-    b2 = tf.Variable(tf.random_uniform([15]))
+    W2 = tf.Variable(tf.random_uniform([15,15], dtype=tf.float64))
+    b2 = tf.Variable(tf.random_uniform([15], dtype=tf.float64))
 
     h2 = tf.tanh(tf.add(tf.matmul(h1, W2), b2))
 
-    W3 = tf.Variable(tf.random_uniform([15,output_size]))
-    b3 = tf.Variable(tf.random_uniform([output_size]))
+    W3 = tf.Variable(tf.random_uniform([15,output_size], dtype=tf.float64))
+    b3 = tf.Variable(tf.random_uniform([output_size], dtype=tf.float64))
 
     return tf.nn.softmax(tf.add(tf.matmul(h2, W3), b3))
 
 def discount_rewards(r, gamma=0.99):
-    discounted_reward = np.zeros_like(r)
+    discounted_rewards = np.zeros_like(r)
     running_add = 0
     for t in reversed(xrange(0, r.size)):
         running_add = running_add * gamma + r[t]
-        discounted_reward[t] = running_add
-    return discounted_reward
+        discounted_rewards[t] = running_add
+    discounted_rewards = (discounted_rewards - np.mean(discounted_rewards)) / np.std(discounted_rewards)
+    return discounted_rewards
 
 class Agent():
     def __init__(self, actions_size, states_size, batch_size):
-        self.observation = tf.placeholder(tf.float32, shape=[None,states_size])
+        self.observation = tf.placeholder(tf.float64, shape=[None,states_size])
         self.y = buildAgentNet(self.observation, states_size, actions_size)
 
-        self.rewards_holder = tf.placeholder(shape=[None],dtype=tf.float32)
+        self.rewards_holder = tf.placeholder(shape=[None],dtype=tf.float64)
         self.actions_holder = tf.placeholder(shape=[None],dtype=tf.int32)
 
         # Gets the indexes of the output parameters of the actions that were
@@ -50,8 +50,8 @@ class Agent():
 
         # For assigning loaded parameters to the model
         self.parameters_assign = []
-        self.parameters_W = tf.placeholder(tf.float32, shape=[None,None])
-        self.parameters_b = tf.placeholder(tf.float32, shape=[None])
+        self.parameters_W = tf.placeholder(tf.float64, shape=[None,None])
+        self.parameters_b = tf.placeholder(tf.float64, shape=[None])
         for i,var in enumerate(self.train_vars):
             if i % 2 ==0:
                 self.parameters_assign.append(var.assign(self.parameters_W))
@@ -63,7 +63,7 @@ class Agent():
         # For updating manually the gradients
         self.gradient_holders = []
         for i, _ in enumerate(self.train_vars):
-            grad_holder = tf.placeholder(tf.float32,name=str(i)+'_holder')
+            grad_holder = tf.placeholder(tf.float64,name=str(i)+'_holder')
             self.gradient_holders.append(grad_holder)
 
 
@@ -75,6 +75,7 @@ def main(argv):
     tf.reset_default_graph()
     total_episodes = 30000
     batch_size = 10
+    load_parameters = False
     env_d = 'LunarLander-v2'
     if len(argv) > 1:
         env_d = argv[1]
@@ -90,11 +91,14 @@ def main(argv):
 
     env = gym.make(env_d)
     init = tf.global_variables_initializer()
+    best_rewards = -np.inf
     with tf.Session() as sess:
         sess.run(init)
         obsrv = env.reset() # Obtain an initial observation of the environment
         episode_number = 0
 
+        if load_parameters:
+            print 'TODO'
         grad_buffer = sess.run(agent.train_vars)
         for i, grad in enumerate(grad_buffer):
             grad_buffer[i] = grad * 0
@@ -139,16 +143,24 @@ def main(argv):
                 for i, grad in enumerate(grad_buffer):
                     grad_buffer[i] = grad * 0
 
-            if episode_number % 100 == 0:
+            if episode_number % 100 == 0 and episode_number != 0:
+                rewards_mean = np.mean(all_rewards[-100:])
                 print('games: %i, reward mean of last 100: %.2f' % \
-                (episode_number, np.mean(all_rewards[-100:])))
+                (episode_number, rewards_mean ))
+                if rewards_mean >= best_rewards:
+                    best_rewards = rewards_mean
+                    params = sess.run(agent.train_vars)
+                    fd = 'ws_' + env_d + '.p.best'
+                    pickle.dump(params, open(fd,'wb'))
+
             if episode_number % 1000 == 0:
                 agent.saver.save(sess, 'model_' + env_d + '.ckpt')
+
             episode_number += 1
             obsrv = env.reset()
 
         params = sess.run(agent.train_vars)
-        fd = 'ws' + env_d + '.p'
+        fd = 'ws_' + env_d + '.p'
         pickle.dump(params, open(fd,'wb'))
 
 
