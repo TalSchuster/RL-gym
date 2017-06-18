@@ -6,18 +6,18 @@ import sys
 
 
 def buildAgentNet(observation, input_size, output_size):
-    W1 = tf.Variable(tf.random_uniform([input_size,15], dtype=tf.float64))
-    b1 = tf.Variable(tf.random_uniform([15], dtype=tf.float64))
+    W1 = tf.get_variable("W1", initializer=tf.contrib.layers.xavier_initializer(), shape=[input_size,15], dtype=tf.float64)
+    b1 = tf.get_variable("b1", initializer=tf.contrib.layers.xavier_initializer(), shape=[15], dtype=tf.float64)
 
     h1 = tf.tanh(tf.add(tf.matmul(observation, W1), b1))
 
-    W2 = tf.Variable(tf.random_uniform([15,15], dtype=tf.float64))
-    b2 = tf.Variable(tf.random_uniform([15], dtype=tf.float64))
+    W2 = tf.get_variable("W2", initializer=tf.contrib.layers.xavier_initializer(), shape=[15,15], dtype=tf.float64)
+    b2 = tf.get_variable("b2", initializer=tf.contrib.layers.xavier_initializer(), shape=[15], dtype=tf.float64)
 
     h2 = tf.tanh(tf.add(tf.matmul(h1, W2), b2))
 
-    W3 = tf.Variable(tf.random_uniform([15,output_size], dtype=tf.float64))
-    b3 = tf.Variable(tf.random_uniform([output_size], dtype=tf.float64))
+    W3 = tf.get_variable("W3", initializer=tf.contrib.layers.xavier_initializer(), shape=[15,output_size], dtype=tf.float64)
+    b3 = tf.get_variable("b3", initializer=tf.contrib.layers.xavier_initializer(), shape=[output_size], dtype=tf.float64)
 
     return tf.nn.softmax(tf.add(tf.matmul(h2, W3), b3))
 
@@ -67,7 +67,7 @@ class Agent():
             self.gradient_holders.append(grad_holder)
 
 
-        adam = tf.train.AdamOptimizer(0.01)
+        adam = tf.train.AdamOptimizer()
         self.train_op = adam.apply_gradients(zip(self.gradient_holders,self.train_vars))
 
 
