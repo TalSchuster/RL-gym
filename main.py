@@ -67,7 +67,7 @@ class Agent():
             self.gradient_holders.append(grad_holder)
 
 
-        adam = tf.train.AdamOptimizer()
+        adam = tf.train.AdamOptimizer(learning_rate=0.005)
         self.train_op = adam.apply_gradients(zip(self.gradient_holders,self.train_vars))
 
 
