@@ -43,6 +43,8 @@ class Agent():
         indexes = tf.range(0, tf.shape(self.y)[0]) * tf.shape(self.y)[1] + self.actions_holder
         ys_of_taken_actions = tf.gather(tf.reshape(self.y, [-1]), indexes)
 
+        # Note that the gradients function of tensorflow sums  over all rows ,so
+        # the gradients will be sum over all taken actions.
         loss = - (tf.log(ys_of_taken_actions) * self.rewards_holder) / batch_size
 
         self.train_vars = tf.trainable_variables()
@@ -57,10 +59,11 @@ class Agent():
                 self.parameters_assign.append(var.assign(self.parameters_W))
             else:
                 self.parameters_assign.append(var.assign(self.parameters_b))
+
         # alternative: regular tf saver
         self.saver = tf.train.Saver()
 
-        # For updating manually the gradients
+        # For updating manually the gradients after a full batch
         self.gradient_holders = []
         for i, _ in enumerate(self.train_vars):
             grad_holder = tf.placeholder(tf.float64,name=str(i)+'_holder')
@@ -142,8 +145,8 @@ def main(argv):
             # sum gradients of the game (divided by batch_size)
             feed_dict={agent.rewards_holder:discount_rewards(game_rewards),
                 agent.actions_holder:game_actions,agent.observation:np.vstack(game_states)}
-            batch_grads = sess.run(agent.gradients, feed_dict=feed_dict)
-            for i, grad in enumerate(batch_grads):
+            game_grads = sess.run(agent.gradients, feed_dict=feed_dict)
+            for i, grad in enumerate(game_grads):
                 grad_buffer[i] += grad
 
             if episode_number % batch_size == 0 and episode_number != 0:
